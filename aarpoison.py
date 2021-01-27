@@ -83,8 +83,6 @@ def parse_arp_table(line, index):
                 print("\t"+Msg.fcyan("SWITCHED (DEFEND)")+ arp_table["ip"][index] + " switched back to mac "+arp_table['mac'][index]+" by SELF")
                 # Do not update arp_table because it was reset back
             else:
-                #dc:ef:9:96:9b:68
-                #bc:ec:23:ca:a6:b
                 # Update arp_table
                 arp_table["mac"][index] = l[3]
     except IndexError:
