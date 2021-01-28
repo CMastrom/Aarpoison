@@ -139,7 +139,6 @@ except Exception:
 
 # Designed to monitor for arp poisoning attacks
 arp_table = ""
-ips, macs = [], []
 
 def reset():
     global arp_table
@@ -157,64 +156,74 @@ def find_duplicate(mac_addr):
             ip_found_at.append(ip)
     return ip_found_at
 
-def parse_arp_table(line, index):
+def getmac(ip):
+    global arp_table
+    for (mac,_ip) in zip(arp_table['mac'], arp_table['ip']):
+        if _ip == ip:
+            return mac
+    return False
+
+def updatemac(ip, mac):
+    global arp_table
+    for (index,_ip) in enumerate(arp_table['ip']):
+        if _ip == ip:
+            arp_table['mac'][index] = mac
+            return True
+    return False
+
+def parse_arp_table(line):
+    global arp_table
     l = line.split(" ")
     if not l or l[0] is None or l[0] == "":
         return
     try:
-        ips.append(l[1].lstrip("(").rstrip(")"))
-        macs.append(l[3])
-    except Exception as e: 
-        print(Msg.ferror("Failed to parse row: "+line))
-        raise e
-    # Compare arp table to current arp table
-    try:
-        if arp_table["ip"][index] != l[1].lstrip("(").rstrip(")"):
-            print(Msg.ferror("POSSIBLE ARP POISON: "+arp_table["ip"][index]+" DOES NOT MATCH "+l[1].lstrip("(").rstrip(")")))
-            print("\t"+Msg.fwarn("POTENTIAL ATTACKER: ")+ "Potential attacker ip: "+l[1].lstrip("(").rstrip(")"))
-            print("\t"+Msg.fcyan("SWITCHED")+ arp_table["ip"][index] + " switched to ip "+l[1].lstrip("(").rstrip(")")+" for MAC "+arp_table['mac'][index])
-            # Update arp_table
-            arp_table["ip"][index] = l[1].lstrip("(").rstrip(")")
-        if arp_table["mac"][index] != l[3]:
-            print(Msg.ferror("POSSIBLE ARP POISON: "+arp_table["mac"][index]+" DOES NOT MATCH "+l[3]))
-            # Try to find attacker:
-            pot_attacker_ip = find_duplicate(l[3])
-            attacker_ip = "[Failed to find Attacker IP]"
-            for aip in pot_attacker_ip:
-                if aip != arp_table["ip"][index]:
-                    attacker_ip = aip
-                    break
-            print("\t"+Msg.fwarn("POTENTIAL ATTACKER: ")+ "Potential attacker ip: "+attacker_ip)
-            print("\t"+Msg.fcyan("SWITCHED")+ arp_table["ip"][index] + " switched to mac "+l[3]+" by IP "+attacker_ip)
-            if DEFEND:
-                if arp_table['ip'][index] not in frozen_ips:
-                    # Try and reset the MAC to the correct one
-                    print("\t"+Msg.fnote("RESETTING")+ " Resetting ARP Poising device to correct mac address...")
-                    print("\t"+Msg.fnote("DUMPING RESPONSE:"))
-                    print(popen("sudo arp -s "+arp_table["ip"][index]+" "+arp_table["mac"][index]+"; sudo arp -d "+arp_table["ip"][index]))
-                    print("\t"+Msg.fcyan("SWITCHED (DEFEND)")+ arp_table["ip"][index] + " switched back to mac "+arp_table['mac'][index]+" by SELF")
-                    print("\t"+Msg.fwarn("FROZE ATTACKED IP ENTRY")+" To prevent further attacks, "+arp_table['ip'][index]+" entry has been frozen (set to permanent) to mac address "+arp_table['mac'][index])
-                    frozen_ips.append(arp_table['ip'][index])
-                    # Do not update arp_table because it was reset back
-            else:
-                # Update arp_table
-                arp_table["mac"][index] = l[3]
-    except IndexError:
-        try:
-            print(Msg.fnote("New Device Found")+" Adding device to checklist...")
-            print("\t"+Msg.fcyan("IP") + l[1].lstrip("(").rstrip(")"))
-            print("\t"+Msg.fwarn("MAC") + l[3])
-            arp_table["ip"].append(l[1].lstrip("(").rstrip(")"))
-            arp_table['mac'].append(l[3])
-        except Exception:
-            print(Msg.ferror("Failed to add device to checklist: ")+line)
+        ip = l[1].lstrip("(").rstrip(")")
+        mac = getmac(ip)
+        if mac != False:
+            if mac != l[3] and ip not in frozen_ips:
+                print(Msg.ferror("POSSIBLE ARP POISON: "+mac+" DOES NOT MATCH "+l[3]))
+                # Try to find attacker:
+                pot_attacker_ip = find_duplicate(l[3])
+                attacker_ip = "[Failed to find Attacker IP]"
+                for aip in pot_attacker_ip:
+                    if aip != ip:
+                        attacker_ip = aip
+                        break
+                print("\t"+Msg.fwarn("POTENTIAL ATTACKER: ")+ "Potential attacker ip: "+attacker_ip)
+                print("\t"+Msg.fcyan("SWITCHED")+ ip + " switched to mac "+l[3]+" by IP "+attacker_ip)
+                if DEFEND:
+                    if ip not in frozen_ips:
+                        # Try and reset the MAC to the correct one
+                        print("\t"+Msg.fnote("RESETTING")+ " Resetting ARP Poising device to correct mac address...")
+                        print("\t"+Msg.fnote("DUMPING RESPONSE:"))
+                        print(popen("sudo arp -s "+ip+" "+mac))
+                        print(popen("sudo arp -d "+ip))
+                        print("\t"+Msg.fcyan("SWITCHED (DEFEND)")+ ip + " switched back to mac "+mac+" by SELF")
+                        print("\t"+Msg.fwarn("FROZE ATTACKED IP ENTRY")+" To prevent further attacks, "+ip+" entry has been frozen (set to permanent) to mac address "+mac)
+                        frozen_ips.append(ip)
+                        # Do not update arp_table because it was reset back
+                else:
+                    # Update arp_table
+                    status = updatemac(ip, l[3])
+                    if status == False:
+                        print(Msg.ferror("UPDATE FAILED")+" Failed to update mac address to "+l[3]+" from "+mac+" for ip "+ip)
+        else:
+            try:
+                print(Msg.fnote("New Device Found")+" Adding device to checklist...")
+                print("\t"+Msg.fcyan("IP") + l[1].lstrip("(").rstrip(")"))
+                print("\t"+Msg.fwarn("MAC") + l[3])
+                arp_table["ip"].append(l[1].lstrip("(").rstrip(")"))
+                arp_table['mac'].append(l[3])
+            except Exception as e:
+                print(Msg.ferror("Failed to add device to checklist: ")+line)
+                print(e)
     except Exception as e:
-        print(Msg.ferror("Failed to evaluate row: "+line+" to -> "+arp_table["ip"][index]))
-        #raise e
+        print(Msg.ferror("Failed to evaluate row: "+line))
+        print(e)
 
 print("This script will keep running until Ctrl + C is executed...")
 
 while True:
     arp_table_lines = popen('arp -a')
-    for (index,line) in enumerate(arp_table_lines):
-        parse_arp_table(line, index)
+    for line in arp_table_lines:
+        parse_arp_table(line)
